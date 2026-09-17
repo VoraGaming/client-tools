@@ -13,7 +13,14 @@
 #include "Direct3d11_ImageWriter.h"
 
 // TEMPORARY DIAGNOSTIC: RenderDoc's in-application API, from the installed SDK.
+// The header only exists on machines with RenderDoc installed, so it is optional: without it the
+// build still succeeds and the debugRenderDocFrame capture below is simply compiled out.
+#if __has_include("C:/Program Files/RenderDoc/renderdoc_app.h")
 #include "C:/Program Files/RenderDoc/renderdoc_app.h"
+#define DIRECT3D11_HAS_RENDERDOC 1
+#else
+#define DIRECT3D11_HAS_RENDERDOC 0
+#endif
 #include "Direct3d11_StateCache.h"
 #include "Direct3d11_Metrics.h"
 #include "Direct3d11_ConstantBuffers.h"
@@ -557,6 +564,7 @@ bool Direct3d11_SwapChain::present()
 
 			if (renderDocFrameNumber == captureFrame)
 			{
+#if DIRECT3D11_HAS_RENDERDOC
 				// Present in the process only when launched under renderdoccmd, so a miss here is
 				// the ordinary case and not worth a warning beyond saying so once.
 				HMODULE const renderDoc = GetModuleHandleA("renderdoc.dll");
@@ -579,6 +587,10 @@ bool Direct3d11_SwapChain::present()
 				{
 					WARNING(true, ("Direct3d11: debugRenderDocFrame is set but renderdoc.dll is not loaded; launch under renderdoccmd."));
 				}
+#else
+				// This build was made without RenderDoc's header, so there is no API to call.
+				WARNING(true, ("Direct3d11: debugRenderDocFrame is set but this renderer was built without RenderDoc support."));
+#endif
 			}
 		}
 	}
