@@ -138,13 +138,23 @@ m_standaloneKeymap (0)
 	//getCodeDataObject (TUIPage, optionPage, "pageVoice");
 	//(*m_optionPages) [OT_voice] = new SwgCuiOptVoice (*optionPage);
 
-	// Keymap: in NGE-retail the bind table lives at the standalone /PDA.keymap
+	// Keymap: prefer the OptMain sub-tab (comp.target.keymap, pulled in by
+	// ui_options.inc from ui_options_keymap.inc), which is how the original
+	// client wired it. The ui_pda.inc that sku0_client.toc resolves to
+	// (patch_52_client_00.tre) has no keymap page, so /PDA.keymap is only a
+	// fallback for asset sets that lack the sub-tab.
+	optionPage = 0;
+	getCodeDataObject (TUIPage, optionPage,      "pageKeymap", true);
+	if (optionPage) (*m_optionPages) [OT_keymap] = new SwgCuiOptKeymap     (*optionPage, Game::getHudSceneType());
+
+	// Fallback: in NGE-retail the bind table lives at the standalone /PDA.keymap
 	// page (defined in ui_pda.inc) rather than as an OptMain sub-tab. /PDA is
 	// declared Visible='false' in the .ui XML, so we duplicate the keymap page
 	// under a known-visible parent (HUD root) and bind a mediator to the
 	// duplicate - the canonical pattern used by other PDA sub-pages (see
 	// SwgCuiCharacterSheet::createInto). The mediator pops up when the Keymap
 	// tab is clicked.
+	if (!optionPage)
 	{
 		UIPage * dupParent = 0;
 		UIBaseObject * const groundHud = getPage().GetParent();
@@ -354,7 +364,8 @@ void SwgCuiOpt::OnTabbedPaneChanged (UIWidget * context)
 			(activeName.find("keymap") != std::string::npos
 			 || activeName.find("Keymap") != std::string::npos
 			 || activeName.find("KEYMAP") != std::string::npos);
-		if (isKeymapTab)
+		// With an embedded keymap sub-tab it activates like any other page below.
+		if (isKeymapTab && m_optionPages->find(OT_keymap) == m_optionPages->end())
 		{
 			// The Keymap tab in NGE-retail's OptMain has no target page; it
 			// was paired with a "/ui action keymap" button on the Controls
@@ -377,11 +388,10 @@ void SwgCuiOpt::OnTabbedPaneChanged (UIWidget * context)
 					Unicode::narrowToWide(
 						"Key Binding\n"
 						"\n"
-						"The keymap dialog page (/PDA.keymap) wasn't found in this\n"
-						"asset bundle. To rebind keys:\n"
-						"\n"
-						"  - Edit profiles/<user>/input.txt under your SWG install\n"
-						"  - Or use the /ui inputScheme console command"));
+						"No keymap page (OptMain comp.target.keymap or /PDA.keymap)\n"
+						"was found in this asset bundle. Bindings are stored in\n"
+						"profiles/<account>/<galaxy>/<characterId>.inp; use\n"
+						"/ui inputScheme to list or reset a preset scheme."));
 			}
 			return;
 		}
