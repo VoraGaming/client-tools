@@ -135,6 +135,9 @@ Direct3d11_ShaderReflection::Result::Result()
  * should have been. There is no useful way to continue: the shader will read some
  * other constant's value, and the resulting image is wrong in a way that looks
  * like a content or lighting bug rather than a layout bug.
+ *
+ * Constants we do NOT recognise are the shader's own, declared without register(cN).
+ * The compiler may pack those part-way into a row; that is legal and is only logged.
  */
 
 void Direct3d11_ShaderReflectionNamespace::checkConstantBuffer(ID3D11ShaderReflection *reflection, char const *name, bool isVertexShader, Direct3d11_ShaderReflection::Result &result)
@@ -164,10 +167,9 @@ void Direct3d11_ShaderReflectionNamespace::checkConstantBuffer(ID3D11ShaderRefle
 		if (FAILED(variable->GetDesc(&variableDescription)) || !variableDescription.Name)
 			continue;
 
-		// Every constant in this buffer must start on a sixteen-byte row,
-		// recognised or not: the register file is addressed in rows.
-		FATAL((variableDescription.StartOffset & 15) != 0, ("Direct3d11: in '%s', constant '%s' starts at byte %u, which is not a multiple of 16. The register file is addressed in 16-byte rows, so this constant cannot be addressed by any register number.", name, variableDescription.Name, variableDescription.StartOffset));
-
+		// A constant the engine writes (one of the names in the table) must sit at exactly
+		// 16 * its register. That is the ABI, and breaking it stays fatal.
+		bool recognised = false;
 		for (int t = 0; t < tableCount; ++t)
 			if (strcmp(variableDescription.Name, table[t].name) == 0)
 			{
@@ -175,8 +177,50 @@ void Direct3d11_ShaderReflectionNamespace::checkConstantBuffer(ID3D11ShaderRefle
 				FATAL(variableDescription.StartOffset != expected, ("Direct3d11: in '%s', constant '%s' landed at byte offset %u but the shader assets require %u (register %d times 16). The register(cN) to $Globals offset correspondence has broken -- every constant in the corpus is now suspect. Check that D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY is still being passed.", name, variableDescription.Name, variableDescription.StartOffset, expected, table[t].registerIndex));
 
 				++result.checkedConstantCount;
+				recognised = true;
 				break;
 			}
+
+		if (recognised)
+			continue;
+
+		// Anything else is a constant the SHADER declared without register(cN). The engine never
+		// writes those -- it only sets constants by register number -- so the compiler is free to
+		// place them, and it does so with the ordinary HLSL packing rules: the first free space
+		// after every register(cN) constant, where a float, float2 or float3 may start part-way
+		// through a 16-byte row. A float2 at byte 1032 is simply register c64, components z and w.
+		//
+		// This used to be fatal ("not a multiple of 16"), which was wrong: D3D addresses such a
+		// constant as row = byte / 16, component = (byte % 16) / 4, and the register file is
+		// uploaded byte for byte (Direct3d11_ConstantBuffers::flush copies the whole shadow), so
+		// the shader already reads exactly those components. It killed the client on entering
+		// space, in vertex_program/e_planet_tatooine.vsh, over a constant nothing ever writes.
+		//
+		// D3D9 would have given such a constant a whole register of its own, equally unwritten by
+		// the engine, so in both cases the shader reads whatever that row holds -- zero for rows
+		// the engine never touches, since the shadow starts zeroed. Logged, not fatal, so a
+		// rendering difference can still be traced back to the program that declares it.
+		unsigned int const byteOffset = variableDescription.StartOffset;
+		unsigned int const componentOffset = byteOffset & 15;
+
+		if (componentOffset != 0)
+		{
+			unsigned int const registerIndex = byteOffset / 16;
+			unsigned int const firstComponent = componentOffset / 4;
+
+			// The components it covers, e.g. "zw". A packed constant never crosses a row
+			// boundary under HLSL packing, so it ends at w at the latest.
+			char swizzle[5];
+			int swizzleLength = 0;
+			for (unsigned int component = firstComponent; component < 4 && (component - firstComponent) * 4 < variableDescription.Size; ++component)
+				swizzle[swizzleLength++] = "xyzw"[component];
+			swizzle[swizzleLength] = 0;
+
+			bool const used = (variableDescription.uFlags & D3D_SVF_USED) != 0;
+
+			WARNING(true, ("Direct3d11: in '%s', constant '%s' has no register(cN) of its own, so the compiler packed it into c%u.%s (byte %u, %u byte(s), %s by the shader). This is normal HLSL packing and is uploaded correctly; the engine never writes this constant by name, so the shader reads whatever register c%u holds.",
+				name, variableDescription.Name, registerIndex, swizzle, byteOffset, variableDescription.Size, used ? "read" : "not read", registerIndex));
+		}
 	}
 }
 
