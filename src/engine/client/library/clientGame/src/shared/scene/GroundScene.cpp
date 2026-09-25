@@ -1991,9 +1991,38 @@ void GroundScene::update(float elapsedTime)
 		{
 			if (playerCell->getPortalProperty() == NULL)
 			{
-				WARNING(true, ("GroundScene::update - player parent cell is phantom (no PortalProperty), resetting to world cell for rendering"));
-				getPlayer()->setParentCell(CellProperty::getWorldCellProperty());
-				playerCell = CellProperty::getWorldCellProperty();
+				// Do NOT apply the reset inside a ship (a POB ship such as the
+				// yacht). A ship's cells are briefly unlinked while they finish
+				// loading after the player boards; resetting then pulls the player
+				// out of the ship into the world cell while the ship flies on, which
+				// broke keyboard input, chat, leaving the pilot seat and landing
+				// comm. For ship cells we keep the original SOE behaviour (use the
+				// parent cell as-is); the cell links itself up once it has loaded.
+				// A cell "belongs to a ship" if the cell object, or the player,
+				// is contained (directly or further up) by a ShipObject.
+				ClientObject const * const cellOwner = playerCell->getOwner().asClientObject();
+				ClientObject const * const playerObject = getPlayer()->asClientObject();
+				bool const cellBelongsToShip =
+					(cellOwner && ShipObject::getContainingShip(*cellOwner) != NULL) ||
+					(playerObject && ShipObject::getContainingShip(*playerObject) != NULL);
+
+				if (cellBelongsToShip)
+				{
+					// Log once per cell (not every frame) so warning.log shows it happened.
+					static CellProperty const * s_lastLoggedShipCell = NULL;
+					if (s_lastLoggedShipCell != playerCell)
+					{
+						s_lastLoggedShipCell = playerCell;
+						WARNING(true, ("GroundScene::update - player is in a ship cell with no PortalProperty yet; NOT resetting to world cell (ship cell)"));
+					}
+				}
+				else
+				{
+					// Ground building with a genuinely missing .pob: unchanged behaviour.
+					WARNING(true, ("GroundScene::update - player parent cell is phantom (no PortalProperty), resetting to world cell for rendering"));
+					getPlayer()->setParentCell(CellProperty::getWorldCellProperty());
+					playerCell = CellProperty::getWorldCellProperty();
+				}
 			}
 		}
 		WorldSnapshot::update(playerCell, playerPosition);
