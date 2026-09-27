@@ -19,8 +19,6 @@ namespace ConfigDirect3d11Namespace
 	ConfigDirect3d11::DriverType   ms_driverType = ConfigDirect3d11::DT_hardware;
 	int                            ms_featureLevelCap;
 	bool                           ms_debugLayer;
-	int                            ms_debugScreenshotFrame;
-	int                            ms_debugRenderDocFrame;
 	bool                           ms_useCompiledShaders;
 	bool                           ms_bakeCompiledShaders;
 
@@ -83,10 +81,6 @@ void ConfigDirect3d11::install()
 	// frame rate to the refresh rate and every percentile becomes meaningless.
 	KEY_BOOL(allowTearing, false);
 
-	// Write a screenshot at this frame number and again periodically after it, through the same
-	// image writer the game's own screenshot key uses. Grabbing the desktop instead is unreliable
-	// on a machine somebody is using: another window comes to the front and the capture is of that
-	// window. This reads the back buffer, so occlusion cannot affect it.
 	// Per-frame hitch and distribution reporting. Off by default: the lines are diagnostics and
 	// emitting them is file I/O on the main thread.
 	KEY_BOOL(reportFrameTiming, false);
@@ -112,13 +106,6 @@ void ConfigDirect3d11::install()
 	// backend -- only the int and bool accessors are. 100 is parity.
 	KEY_INT(fogDensityPercent, 100);
 
-	KEY_INT(debugScreenshotFrame, 0);
-
-	// Ask RenderDoc to capture the frame after this one. Only does anything when the client was
-	// launched under renderdoccmd, so it is inert in an ordinary run. A keypress trigger is no use
-	// here: it needs the window to have focus, and the window does not reliably have focus on a
-	// machine somebody else is using.
-	KEY_INT(debugRenderDocFrame, 0);
 	KEY_BOOL(useCompiledShaders, true);
 	KEY_BOOL(bakeCompiledShaders, false);
 	KEY_INT (fullscreenRefreshRate, 0);
@@ -218,25 +205,6 @@ bool ConfigDirect3d11::getDebugDisableFog()
 float ConfigDirect3d11::getFogDensityScale()
 {
 	return static_cast<float>(ms_fogDensityPercent) / 100.0f;
-}
-
-
-
-
-
-
-// ----------------------------------------------------------------------
-
-int ConfigDirect3d11::getDebugScreenshotFrame()
-{
-	return ms_debugScreenshotFrame;
-}
-
-// ----------------------------------------------------------------------
-
-int ConfigDirect3d11::getDebugRenderDocFrame()
-{
-	return ms_debugRenderDocFrame;
 }
 
 // ----------------------------------------------------------------------

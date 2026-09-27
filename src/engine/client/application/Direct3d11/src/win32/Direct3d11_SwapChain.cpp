@@ -10,17 +10,6 @@
 
 #include "ConfigDirect3d11.h"
 #include "Direct3d11_Device.h"
-#include "Direct3d11_ImageWriter.h"
-
-// TEMPORARY DIAGNOSTIC: RenderDoc's in-application API, from the installed SDK.
-// The header only exists on machines with RenderDoc installed, so it is optional: without it the
-// build still succeeds and the debugRenderDocFrame capture below is simply compiled out.
-#if __has_include("C:/Program Files/RenderDoc/renderdoc_app.h")
-#include "C:/Program Files/RenderDoc/renderdoc_app.h"
-#define DIRECT3D11_HAS_RENDERDOC 1
-#else
-#define DIRECT3D11_HAS_RENDERDOC 0
-#endif
 #include "Direct3d11_StateCache.h"
 #include "Direct3d11_Metrics.h"
 #include "Direct3d11_ConstantBuffers.h"
@@ -552,69 +541,6 @@ bool Direct3d11_SwapChain::present()
 		context->RSSetViewports(1, &fullTarget);
 
 		Direct3d11_SceneTarget::composite();
-	}
-
-	// TEMPORARY DIAGNOSTIC: ask RenderDoc for a capture at a chosen frame.
-	{
-		int const captureFrame = ConfigDirect3d11::getDebugRenderDocFrame();
-		if (captureFrame > 0)
-		{
-			static int renderDocFrameNumber = 0;
-			++renderDocFrameNumber;
-
-			if (renderDocFrameNumber == captureFrame)
-			{
-#if DIRECT3D11_HAS_RENDERDOC
-				// Present in the process only when launched under renderdoccmd, so a miss here is
-				// the ordinary case and not worth a warning beyond saying so once.
-				HMODULE const renderDoc = GetModuleHandleA("renderdoc.dll");
-				if (renderDoc)
-				{
-					pRENDERDOC_GetAPI const getApi = reinterpret_cast<pRENDERDOC_GetAPI>(GetProcAddress(renderDoc, "RENDERDOC_GetAPI"));
-					RENDERDOC_API_1_1_2 *api = NULL;
-
-					if (getApi && getApi(eRENDERDOC_API_Version_1_1_2, reinterpret_cast<void **>(&api)) == 1 && api)
-					{
-						api->TriggerCapture();
-						WARNING(true, ("Direct3d11: asked RenderDoc to capture the frame after %d.", captureFrame));
-					}
-					else
-					{
-						WARNING(true, ("Direct3d11: renderdoc.dll is loaded but its API could not be obtained."));
-					}
-				}
-				else
-				{
-					WARNING(true, ("Direct3d11: debugRenderDocFrame is set but renderdoc.dll is not loaded; launch under renderdoccmd."));
-				}
-#else
-				// This build was made without RenderDoc's header, so there is no API to call.
-				WARNING(true, ("Direct3d11: debugRenderDocFrame is set but this renderer was built without RenderDoc support."));
-#endif
-			}
-		}
-	}
-
-	// TEMPORARY DIAGNOSTIC: an automatic screenshot, taken before Present while the back buffer
-	// still holds this frame. Written through Direct3d11_ImageWriter, which is the same path the
-	// game's own screenshot key uses, so what lands on disk is what the renderer produced rather
-	// than whatever the desktop compositor had on top.
-	{
-		int const shotFrame = ConfigDirect3d11::getDebugScreenshotFrame();
-		if (shotFrame > 0)
-		{
-			static int frameNumber = 0;
-			++frameNumber;
-
-			// The requested frame, then every 600 after it, so a run yields a few views without
-			// filling the disk.
-			if (frameNumber == shotFrame || (frameNumber > shotFrame && ((frameNumber - shotFrame) % 600) == 0))
-			{
-				char name[64];
-				sprintf(name, "debugshot_%05d", frameNumber);
-				IGNORE_RETURN(Direct3d11_ImageWriter::screenShot(GSSF_tga, 100, name));
-			}
-		}
 	}
 
 	UINT const syncInterval = (ms_swapChainFlags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) ? 0 : 1;

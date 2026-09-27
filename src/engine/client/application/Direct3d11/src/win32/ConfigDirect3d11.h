@@ -40,9 +40,6 @@ public:
 	static int         getFeatureLevelCap();
 	static bool        getDebugLayer();
 
-	static int         getDebugScreenshotFrame();
-	static int         getDebugRenderDocFrame();
-
 	// Fetch precompiled DXBC instead of compiling, when a validated cache is present. On by
 	// default: a missing or stale cache falls back to compiling, so there is nothing to opt into.
 	static bool        getUseCompiledShaders();
