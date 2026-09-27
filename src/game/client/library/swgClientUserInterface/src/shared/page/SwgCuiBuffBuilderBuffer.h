@@ -48,6 +48,7 @@ public:
 
 	void onBuffBuilderChangeReceived(PlayerCreatureController::Messages::BuffBuilderChangeReceived::Payload const & payload);
 	void onBuffBuilderCancelReceived(PlayerCreatureController::Messages::BuffBuilderChangeReceived::Payload const & payload);
+	void onSkillModsChanged(CreatureObject const & creature);
 
 private:
 
@@ -72,6 +73,10 @@ private:
 	int getExpertiseSkillModValue(const std::string & expertiseName, const std::string & skillModName);
 	int getExpertiseModifierForBuffComponent(const std::string & buffComponentName);
 
+	// Entertainer NPC "master mode" (see the .cpp namespace for how the server signals it)
+	bool isNpcMasterSession() const;
+	void setMasterMode(bool masterMode);
+
 	void onVerifyPromptClosed(const CuiMessageBox & box);
 
 	void addBuffToList();
@@ -95,6 +100,7 @@ private:
 	UIText * m_recipientName;
 
 	bool m_committed;
+	bool m_masterMode;
 
 	static bool m_failedLastVerification;
 };
