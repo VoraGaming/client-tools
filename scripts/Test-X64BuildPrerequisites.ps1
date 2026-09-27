@@ -14,6 +14,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Some shells (e.g. Git Bash / agent hosts) do not pass ProgramFiles(x86)
+# through to PowerShell; fall back to the standard location.
+$programFilesX86 = ${env:ProgramFiles(x86)}
+if (-not $programFilesX86) {
+    $programFilesX86 = "C:\Program Files (x86)"
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $manifestPath = Join-Path $repoRoot "deps\build-prerequisites\manifest.json"
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -96,7 +103,7 @@ function Get-VisualStudioStatus {
     }
 
     $roots = @()
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    $vswhere = Join-Path $programFilesX86 "Microsoft Visual Studio\Installer\vswhere.exe"
     if (Test-Path -LiteralPath $vswhere -PathType Leaf) {
         $arguments = @(
             "-all",
@@ -147,7 +154,7 @@ function Get-VisualStudioStatus {
         (Join-Path $env:ProgramFiles "Microsoft Visual Studio\18\Professional"),
         (Join-Path $env:ProgramFiles "Microsoft Visual Studio\18\Enterprise"),
         (Join-Path $env:ProgramFiles "Microsoft Visual Studio\18\BuildTools"),
-        (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\18\BuildTools")
+        (Join-Path $programFilesX86 "Microsoft Visual Studio\18\BuildTools")
     )
     foreach ($root in $fallbackRoots) {
         if ($root -and (Test-Path -LiteralPath $root -PathType Container)) {
@@ -191,7 +198,7 @@ function Get-WindowsSdkStatus {
     }
     catch {
     }
-    $roots += Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10"
+    $roots += Join-Path $programFilesX86 "Windows Kits\10"
 
     $candidates = @()
     foreach ($root in @($roots | Select-Object -Unique)) {
@@ -237,7 +244,7 @@ function Get-DirectXSdkStatus {
     if ($env:DXSDK_DIR) {
         $roots += $env:DXSDK_DIR
     }
-    $roots += Join-Path ${env:ProgramFiles(x86)} "Microsoft DirectX SDK (June 2010)"
+    $roots += Join-Path $programFilesX86 "Microsoft DirectX SDK (June 2010)"
 
     foreach ($root in @($roots | Where-Object { $_ } | Select-Object -Unique)) {
         $normalizedRoot = [IO.Path]::GetFullPath($root.Trim().Trim([char]34).TrimEnd("\"))
