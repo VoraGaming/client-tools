@@ -33,7 +33,9 @@ public:
 	//accessors
 	NetworkId const & getBufferId() const;
 	NetworkId const & getRecipientId() const;
-	time_t getStartingTime() const;
+	// uint32_t, not time_t: the server sends/reads this as 4 bytes. On x64, time_t is 8 bytes,
+	// which shifted every later field and made the server read "accepted" as false.
+	uint32_t getStartingTime() const;
 	int getBufferRequiredCredits() const;
 	bool getAccepted() const;
 	Origin getOrigin() const;
@@ -42,7 +44,7 @@ public:
 	//mutators
 	void setBufferId(NetworkId const & bufferId);
 	void setRecipientId(NetworkId const & recipientId);
-	void setStartingTime(time_t startingTime);
+	void setStartingTime(uint32_t startingTime);
 	void setBufferRequiredCredits(int credits);
 	void setAccepted(bool accepted);
 	void setOrigin(Origin const & origin);
@@ -56,7 +58,7 @@ private:
 private:
 	NetworkId m_bufferId;
 	NetworkId m_recipientId;
-	time_t m_startingTime;
+	uint32_t m_startingTime;
 	int m_bufferRequiredCredits;
 	bool m_accepted;
 	Origin m_origin;
@@ -79,7 +81,7 @@ inline NetworkId const & BuffBuilderChangeMessage::getRecipientId() const
 
 //-----------------------------------------------------------------------
 
-inline time_t BuffBuilderChangeMessage::getStartingTime() const
+inline uint32_t BuffBuilderChangeMessage::getStartingTime() const
 {
 	return m_startingTime;
 }
@@ -121,7 +123,7 @@ inline void BuffBuilderChangeMessage::setRecipientId(NetworkId const & recipient
 
 //-----------------------------------------------------------------------
 
-inline void BuffBuilderChangeMessage::setStartingTime(time_t const startingTime)
+inline void BuffBuilderChangeMessage::setStartingTime(uint32_t const startingTime)
 {
 	m_startingTime = startingTime;
 }
