@@ -242,6 +242,7 @@ namespace CuiActions
 	MAKE_ACTION(dpsMeter);
 	MAKE_ACTION(openBuffBuilderBufferWindow);
 	MAKE_ACTION(openBuffBuilderBuffeeWindow);
+	MAKE_ACTION(openBuffBuilderNpcWindow);
 	MAKE_ACTION(untargetOnly);
 	MAKE_ACTION(openIncubatorWindow);
 	MAKE_ACTION(petToolbarSlot0);

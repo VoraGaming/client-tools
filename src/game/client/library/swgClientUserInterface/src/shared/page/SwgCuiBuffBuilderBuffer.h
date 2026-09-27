@@ -45,6 +45,7 @@ public:
 	virtual bool close();
 
 	void setRecipient(NetworkId const & recipientId);
+	void setNpcBuffer(NetworkId const & bufferId);
 
 	void onBuffBuilderChangeReceived(PlayerCreatureController::Messages::BuffBuilderChangeReceived::Payload const & payload);
 	void onBuffBuilderCancelReceived(PlayerCreatureController::Messages::BuffBuilderChangeReceived::Payload const & payload);
@@ -80,6 +81,8 @@ private:
 	MessageDispatch::Callback *  m_callback;
 
 	NetworkId m_recipientId;
+	NetworkId m_bufferId;
+	bool m_npcMode;
 	UIButton * m_clearButton;
 	UIButton * m_cancelButton;
 	UIButton * m_acceptButton;

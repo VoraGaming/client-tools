@@ -274,6 +274,7 @@ m_toggleDownTimeNames          (0.0f)
 
 	CuiActionManager::addAction (CuiActions::openBuffBuilderBufferWindow, this, false);
 	CuiActionManager::addAction (CuiActions::openBuffBuilderBuffeeWindow, this, false);
+	CuiActionManager::addAction (CuiActions::openBuffBuilderNpcWindow, this, false);
 
 	CuiActionManager::addAction (CuiActions::untargetOnly, this, false);
 	
@@ -1323,6 +1324,22 @@ bool  SwgCuiHudAction::performAction (const std::string & id, const Unicode::Str
 			if(buffBuilderBuffee)
 			{
 				buffBuilderBuffee->setBufferId(bufferId);
+			}
+		}
+	}
+
+	else if (id == CuiActions::openBuffBuilderNpcWindow)
+	{
+		std::vector<Unicode::String> result;
+		IGNORE_RETURN(Unicode::tokenize(params, result));
+		if(result.size() == 1)
+		{
+			std::string const & bufferIdStr = Unicode::wideToNarrow(result[0]);
+			NetworkId const bufferId(bufferIdStr);
+			SwgCuiBuffBuilderBuffer * const buffBuilderBuffer = safe_cast<SwgCuiBuffBuilderBuffer *>(CuiMediatorFactory::activateInWorkspace (CuiMediatorTypes::WS_BuffBuilderBuffer));
+			if(buffBuilderBuffer)
+			{
+				buffBuilderBuffer->setNpcBuffer(bufferId);
 			}
 		}
 	}

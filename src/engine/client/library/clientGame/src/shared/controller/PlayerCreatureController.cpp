@@ -1884,7 +1884,17 @@ void PlayerCreatureController::handleMessage (const int message, const float val
 					}
 					else if(playerId != inMsg->getBufferId() && playerId == inMsg->getRecipientId())
 					{
-						IGNORE_RETURN(CuiActionManager::performAction (CuiActions::openBuffBuilderBuffeeWindow, Unicode::narrowToWide(recipientParams)));
+						Object * const bufferObj = NetworkIdManager::getObjectById(inMsg->getBufferId());
+						TangibleObject const * const bufferTO = bufferObj ? bufferObj->asTangibleObject() : NULL;
+						if(bufferTO && bufferTO->isPlayer())
+						{
+							IGNORE_RETURN(CuiActionManager::performAction (CuiActions::openBuffBuilderBuffeeWindow, Unicode::narrowToWide(recipientParams)));
+						}
+						else
+						{
+							//buffer is an NPC (or not known to the client yet) - open the builder window in NPC mode
+							IGNORE_RETURN(CuiActionManager::performAction (CuiActions::openBuffBuilderNpcWindow, Unicode::narrowToWide(recipientParams)));
+						}
 					}
 					//if we're buffing ourself
 					else if(playerId == inMsg->getBufferId() && playerId == inMsg->getRecipientId())
