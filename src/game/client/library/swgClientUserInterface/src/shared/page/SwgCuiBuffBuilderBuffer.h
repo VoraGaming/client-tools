@@ -59,6 +59,7 @@ private:
 	void setupPage();
 	CreatureObject * getRecipientCreature() const;
 	NetworkId const & getRecipientId() const;
+	NetworkId const & getBufferId() const;
 	void buildAndSendUpdateToServer(bool accepted) const;
 	void initializeBuffTree();
 	void initializeExpertiseModifiers();
