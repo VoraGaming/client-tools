@@ -360,6 +360,12 @@ void SwgCuiBuffBuilderBuffer::setupPage()
 	newSession.startingTime = Os::getRealSystemTime();
 	SharedBuffBuilderManager::startSession(newSession);
 
+	// A new session is never "already accepted". This matters when the window is still open and
+	// gets reused for a new session (e.g. the Entertainer NPC restarts a session): otherwise an
+	// old Accept would stop Cancel from telling the server and block the late master-mode switch.
+	// A freshly created window already starts with false, so normal /inspire is unchanged.
+	m_committed = false;
+
 	// Decide NPC master mode here, now that the recipient is known (the constructor ran too early).
 	// Without the marker this is always false, so a normal entertainer session is unchanged.
 	bool const masterMode = isNpcMasterSession();
