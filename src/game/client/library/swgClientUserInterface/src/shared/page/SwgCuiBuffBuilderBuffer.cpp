@@ -40,6 +40,7 @@ namespace SwgCuiBuffBuilderBufferNamespace
 {
 	// points related constants
 	const int ms_basePoints = 8;
+	const int ms_npcBudgetPoints = 20; // T-010: fixed budget for NPC-mode buff builder
 	int ms_additionalPoints = 0;
 	const std::string ms_creativeExpertiseName = "expertise_en_creativity_1";
 	const std::string ms_pointIncreaseExpertiseSkillModName = "expertise_en_inspire_base_point_increase";
@@ -81,6 +82,8 @@ CuiMediator       ("SwgCuiBuffBuilderBuffer", page),
 UIEventCallback   (),
 m_callback        (new MessageDispatch::Callback),
 m_recipientId(),
+m_bufferId(),
+m_npcMode(false),
 m_clearButton(NULL),
 m_cancelButton(NULL),
 m_acceptButton(NULL),
@@ -206,7 +209,14 @@ void SwgCuiBuffBuilderBuffer::OnButtonPressed( UIWidget *context )
 	//send the update packet
 	else if(context == m_acceptButton)
 	{
-		if(m_failedLastVerification || Random::random(1, 5) <= 2) // 40% chance
+		if(m_npcMode)
+		{
+			// T-010: NPC mode - local player is the recipient; send accepted update and close (buffee pattern)
+			buildAndSendUpdateToServer(true);
+			m_committed = true;
+			closeThroughWorkspace();
+		}
+		else if(m_failedLastVerification || Random::random(1, 5) <= 2) // 40% chance
 		{
 			CuiStringVariablesData csvd;
 			Object const * sourceObj = Game::getPlayer();
@@ -243,7 +253,7 @@ void SwgCuiBuffBuilderBuffer::OnButtonPressed( UIWidget *context )
 		if(!player) 
 			return;
 		SharedBuffBuilderManager::Session session;
-		bool const result = SharedBuffBuilderManager::getSession(player->getNetworkId(), session);
+		bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 					
 		if(result)
 		{
@@ -328,7 +338,7 @@ void SwgCuiBuffBuilderBuffer::setupPage()
 		return;
 
 	SharedBuffBuilderManager::Session newSession;
-	newSession.bufferId = player->getNetworkId();
+	newSession.bufferId = getBufferId(); // T-010: NPC in NPC mode, local player otherwise
 	newSession.recipientId = m_recipientId;
 	newSession.startingTime = Os::getRealSystemTime();
 	SharedBuffBuilderManager::startSession(newSession);
@@ -343,19 +353,22 @@ void SwgCuiBuffBuilderBuffer::setupPage()
 		m_recipientName->SetText(recipientCreature->getLocalizedName());
 	}
 
-	if(Game::getSinglePlayer())
+	if(!m_npcMode)
 	{
-		//single player
-		setRecipient(player->getNetworkId());
-	}
-	else
-	{
-		//make sure the buffer has some target
-		if(!getRecipientCreature())
+		if(Game::getSinglePlayer())
 		{
-			CuiMessageBox::createInfoBox(SharedStringIds::buffbuilder_no_target.localize());
-			closeThroughWorkspace();
-			return;
+			//single player
+			setRecipient(player->getNetworkId());
+		}
+		else
+		{
+			//make sure the buffer has some target
+			if(!getRecipientCreature())
+			{
+				CuiMessageBox::createInfoBox(SharedStringIds::buffbuilder_no_target.localize());
+				closeThroughWorkspace();
+				return;
+			}
 		}
 	}
 
@@ -379,9 +392,27 @@ void SwgCuiBuffBuilderBuffer::setRecipient(NetworkId const & recipientId)
 
 //----------------------------------------------------------------------
 
+void SwgCuiBuffBuilderBuffer::setNpcBuffer(NetworkId const & bufferId)
+{
+	// T-010: NPC mode - buffer is the NPC, recipient is the local player.
+	m_npcMode = true;
+	m_bufferId = bufferId;
+
+	CreatureObject const * const player = Game::getPlayerCreature ();
+	DEBUG_FATAL(!player, ("SwgCuiBuffBuilderBuffer::setNpcBuffer - no player"));
+	if(!player)
+		return;
+
+	m_recipientId = player->getNetworkId();
+	initializeBuffTree(); // rebuild with all components ungated (m_npcMode is set)
+	setupPage();
+}
+
+//----------------------------------------------------------------------
+
 void SwgCuiBuffBuilderBuffer::onBuffBuilderChangeReceived(PlayerCreatureController::Messages::BuffBuilderChangeReceived::Payload const & payload)
 {
-	if(Game::getPlayer()->getNetworkId() != payload.bufferId)
+	if(getBufferId() != payload.bufferId) // T-010: NPC mode - buffer is the NPC
 		return;
 
 	if(payload.accepted == true)
@@ -394,7 +425,7 @@ void SwgCuiBuffBuilderBuffer::onBuffBuilderChangeReceived(PlayerCreatureControll
 
 void SwgCuiBuffBuilderBuffer::onBuffBuilderCancelReceived(PlayerCreatureController::Messages::BuffBuilderChangeReceived::Payload const & payload)
 {
-	if(Game::getPlayer()->getNetworkId() != payload.bufferId)
+	if(getBufferId() != payload.bufferId) // T-010: NPC mode - buffer is the NPC
 		return;
 
 	SharedBuffBuilderManager::endSession(payload.bufferId);
@@ -421,6 +452,19 @@ NetworkId const & SwgCuiBuffBuilderBuffer::getRecipientId() const
 
 //----------------------------------------------------------------------
 
+NetworkId const & SwgCuiBuffBuilderBuffer::getBufferId() const
+{
+	// T-010: session key - the NPC in NPC mode, the local player otherwise.
+	if(m_npcMode)
+		return m_bufferId;
+
+	Object * const player = Game::getPlayer();
+	DEBUG_FATAL(!player, ("SwgCuiBuffBuilderBuffer::getBufferId - no player"));
+	return player->getNetworkId();
+}
+
+//----------------------------------------------------------------------
+
 void SwgCuiBuffBuilderBuffer::buildAndSendUpdateToServer(bool const accepted) const
 {
 	CreatureObject * const player = Game::getPlayerCreature ();
@@ -428,7 +472,7 @@ void SwgCuiBuffBuilderBuffer::buildAndSendUpdateToServer(bool const accepted) co
 		return;
 
 	SharedBuffBuilderManager::Session session;
-	bool const result = SharedBuffBuilderManager::getSession(player->getNetworkId(), session);
+	bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 	
 	if(result)
 	{
@@ -452,7 +496,7 @@ bool SwgCuiBuffBuilderBuffer::close()
 		if(buffer)
 		{
 			SharedBuffBuilderManager::Session session;
-			bool const result = SharedBuffBuilderManager::getSession(buffer->getNetworkId(), session);
+			bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 			if(result)
 			{
 				SharedBuffBuilderManager::endSession(session.bufferId);
@@ -517,8 +561,8 @@ void SwgCuiBuffBuilderBuffer::initializeBuffTree()
 					requiredExpertise = std::string("expertise_en_") + requiredExpertise + std::string("_1");
 				}
 
-				// expertise check 
-				if(requiredExpertise.empty() || ClientExpertiseManager::playerHasExpertise(requiredExpertise))
+				// expertise check (T-010: NPC mode - all components available)
+				if(m_npcMode || requiredExpertise.empty() || ClientExpertiseManager::playerHasExpertise(requiredExpertise))
 				{
 					Unicode::String buffInternalNameWide = Unicode::narrowToWide(buffList[buffIndex].c_str());
 					UIDataSourceContainer * const buffDsc = new UIDataSourceContainer;
@@ -597,6 +641,10 @@ int SwgCuiBuffBuilderBuffer::getExpertiseSkillModValue(const std::string & exper
 
 int SwgCuiBuffBuilderBuffer::getExpertiseModifierForBuffComponent(const std::string & buffComponentName)
 {
+	// T-010: NPC mode - the buffer is an NPC with no expertise, so no scaling bonus.
+	if(m_npcMode)
+		return 0;
+
 	int value = 0;
 
 	const std::string& categoryName = SharedBuffBuilderManager::getCategoryNameForRecordName(buffComponentName);
@@ -643,7 +691,7 @@ void SwgCuiBuffBuilderBuffer::updateBuffListFromSession()
 		return;	
 
 	SharedBuffBuilderManager::Session session;
-	bool const result = SharedBuffBuilderManager::getSession(player->getNetworkId(), session);
+	bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 					
 	if(result)
 	{
@@ -676,7 +724,7 @@ void SwgCuiBuffBuilderBuffer::updateBuffeeListFromSession()
 		return;	
 
 	SharedBuffBuilderManager::Session session;
-	bool const result = SharedBuffBuilderManager::getSession(player->getNetworkId(), session);
+	bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 	
 	if(result)
 	{
@@ -711,7 +759,7 @@ void SwgCuiBuffBuilderBuffer::OnTextboxChanged(UIWidget * const context)
 	if (context == m_coverChargeTextBox)
 	{
 		SharedBuffBuilderManager::Session session;
-		bool const result = SharedBuffBuilderManager::getSession(Game::getPlayer()->getNetworkId(), session);
+		bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 		if(result)
 		{
 			int value = m_coverChargeTextBox->GetNumericIntegerValue();
@@ -736,7 +784,7 @@ void SwgCuiBuffBuilderBuffer::updatePointsFromSession()
 		return;	
 
 	SharedBuffBuilderManager::Session session;
-	bool const result = SharedBuffBuilderManager::getSession(player->getNetworkId(), session);
+	bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 	
 	int totalCost = 0;
 
@@ -753,7 +801,7 @@ void SwgCuiBuffBuilderBuffer::updatePointsFromSession()
 	m_totalCost->SetText(Unicode::narrowToWide(buf));
 
 	
-	int totalPoints = ms_basePoints + ms_additionalPoints;
+	int totalPoints = m_npcMode ? ms_npcBudgetPoints : (ms_basePoints + ms_additionalPoints); // T-010: fixed 20-pt budget in NPC mode
 	
 	_itoa(totalPoints - totalCost, buf, 10);
 	m_pointsLeft->SetText(Unicode::narrowToWide(buf));
@@ -796,7 +844,7 @@ void SwgCuiBuffBuilderBuffer::updateAddRemoveButtons()
 						return;	
 
 					SharedBuffBuilderManager::Session session;
-					bool const result = SharedBuffBuilderManager::getSession(player->getNetworkId(), session);
+					bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 
 					if(result)
 					{
@@ -830,7 +878,7 @@ void SwgCuiBuffBuilderBuffer::updateAcceptButton()
 		return;	
 
 	SharedBuffBuilderManager::Session session;
-	bool const result = SharedBuffBuilderManager::getSession(player->getNetworkId(), session);
+	bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 
 	if(result)
 	{
@@ -940,7 +988,7 @@ void SwgCuiBuffBuilderBuffer::addBuffToList()
 				if(pointsLeftToSpend >= costForComponent)
 				{
 					SharedBuffBuilderManager::Session session;
-					bool const result = SharedBuffBuilderManager::getSession(player->getNetworkId(), session);
+					bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 					if(result)
 					{
 						int expertiseModifier = getExpertiseModifierForBuffComponent(Unicode::wideToNarrow(internalName));
@@ -987,7 +1035,7 @@ void SwgCuiBuffBuilderBuffer::removeBuffFromList()
 					return;
 
 				SharedBuffBuilderManager::Session session;
-				bool const result = SharedBuffBuilderManager::getSession(player->getNetworkId(), session);
+				bool const result = SharedBuffBuilderManager::getSession(getBufferId(), session); // T-010: NPC-mode session key
 				if(result)
 				{
 					session.accepted = false;
