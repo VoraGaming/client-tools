@@ -1885,7 +1885,7 @@ void PlayerCreatureController::handleMessage (const int message, const float val
 					else if(playerId != inMsg->getBufferId() && playerId == inMsg->getRecipientId())
 					{
 						Object * const bufferObj = NetworkIdManager::getObjectById(inMsg->getBufferId());
-						TangibleObject const * const bufferTO = bufferObj ? bufferObj->asTangibleObject() : NULL;
+						TangibleObject const * const bufferTO = safe_cast<TangibleObject const *>(bufferObj);
 						if(bufferTO && bufferTO->isPlayer())
 						{
 							IGNORE_RETURN(CuiActionManager::performAction (CuiActions::openBuffBuilderBuffeeWindow, Unicode::narrowToWide(recipientParams)));
