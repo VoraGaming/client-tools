@@ -47,7 +47,9 @@ public:
 	std::string const & getNewHairAsset() const;
 	std::string const & getHairCustomizationData() const;
 	DesignType getDesignType() const;
-	time_t getStartingTime() const;
+	// uint32_t, not time_t: the server sends/reads this as 4 bytes. On x64, time_t is 8 bytes,
+	// which shifted every later field and made the server read "accepted" as false.
+	uint32_t getStartingTime() const;
 	int getDesignerRequiredCredits() const;
 	int getRecipientPaidCredits() const;
 	bool getAccepted() const;
@@ -68,7 +70,7 @@ public:
 	void setNewHairAsset(std::string const & newAsset);
 	void setHairCustomizationData(std::string const & hairCustomizationData);
 	void setDesignType(DesignType const & designType);
-	void setStartingTime(time_t startingTime);
+	void setStartingTime(uint32_t startingTime);
 	void setDesignerRequiredCredits(int credits);
 	void setRecipientPaidCredits(int credits);
 	void setAccepted(bool accepted);
@@ -95,7 +97,7 @@ private:
 	std::string m_newHairAsset;
 	std::string m_hairCustomizationData;
 	DesignType m_designType;
-	time_t m_startingTime;
+	uint32_t m_startingTime; // 4 bytes on the wire, same as the server
 	int m_designerRequiredCredits;
 	int m_recipientPaidCredits;
 	bool m_accepted;
@@ -160,7 +162,7 @@ inline ImageDesignChangeMessage::DesignType ImageDesignChangeMessage::getDesignT
 
 //-----------------------------------------------------------------------
 
-inline time_t ImageDesignChangeMessage::getStartingTime() const
+inline uint32_t ImageDesignChangeMessage::getStartingTime() const
 {
 	return m_startingTime;
 }
@@ -280,7 +282,7 @@ inline void ImageDesignChangeMessage::setDesignType(DesignType const & designTyp
 
 //-----------------------------------------------------------------------
 
-inline void ImageDesignChangeMessage::setStartingTime(time_t const startingTime)
+inline void ImageDesignChangeMessage::setStartingTime(uint32_t const startingTime)
 {
 	m_startingTime = startingTime;
 }

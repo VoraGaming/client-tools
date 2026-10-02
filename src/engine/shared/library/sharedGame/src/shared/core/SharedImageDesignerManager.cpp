@@ -535,7 +535,7 @@ void SharedImageDesignerManager::populateChangeMessage(SharedImageDesignerManage
 	msg.setDesignerId(session.designerId);
 	msg.setRecipientId(session.recipientId);
 	msg.setTerminalId(session.terminalId);
-	msg.setStartingTime(session.startingTime);
+	msg.setStartingTime(static_cast<uint32_t>(session.startingTime)); // wire field is 4 bytes
 	msg.setDesignType(session.designType);
 	msg.setNewHairSet(session.newHairSet);
 	msg.setOrigin(ImageDesignChangeMessage::O_DESIGNER);
