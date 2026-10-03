@@ -72,6 +72,28 @@ namespace SwgCuiBuffBuilderBufferNamespace
 
 	int ms_totalLogos = 0;
 	int ms_consecutiveFails = 0;
+
+	// Entertainer NPC "master mode".
+	// The Entertainer NPC opens a self-buff session (buffer == recipient == player). About a second
+	// before that, the server gives the player short-lived, invisible "bbnpc_*" skill mods:
+	//   bbnpc_master = 1                                  -> turns master mode on
+	//   bbnpc_<skill mod name used above> = value         -> replaces the player's own expertise value
+	//                                                        (e.g. bbnpc_expertise_en_inspire_base_point_increase = 12)
+	//   bbnpc_expertise_en_<REQUIRED_EXPERTISE>_1 = 1     -> unlocks that buff_builder.tab row
+	// So the window shows exactly the budget and bonuses the server will apply.
+	const std::string ms_npcMasterMarkerModName = "bbnpc_master";
+	const std::string ms_npcMasterModPrefix = "bbnpc_";
+
+	// Reads one of the player's skill mods WITHOUT the display cap.
+	// (CreatureObject::getModValue caps at maxCreatureSkillModBonus, 25 by default, which would
+	// turn a +200% bonus into 25.)
+	int getPlayerModValueUncapped(std::string const & modName)
+	{
+		CreatureObject const * const player = Game::getPlayerCreature();
+		if (!player)
+			return 0;
+		return player->getModValue(modName, false);
+	}
 }
 
 using namespace SwgCuiBuffBuilderBufferNamespace;
@@ -94,7 +116,8 @@ m_pointsLeft(NULL),
 m_totalCost(NULL),
 m_componentDescription(NULL),
 m_recipientName(NULL),
-m_committed(false)
+m_committed(false),
+m_masterMode(false)
 {
 	IGNORE_RETURN(setState(MS_closeable));
 
@@ -114,6 +137,8 @@ m_committed(false)
 
 	m_callback->connect (*this, &SwgCuiBuffBuilderBuffer::onBuffBuilderChangeReceived, static_cast<PlayerCreatureController::Messages::BuffBuilderChangeReceived *>(0));
 	m_callback->connect (*this, &SwgCuiBuffBuilderBuffer::onBuffBuilderCancelReceived, static_cast<PlayerCreatureController::Messages::BuffBuilderCancelReceived *>(0));
+	// NPC master mode: the server's marker skill mods may arrive just after the window opens
+	m_callback->connect (*this, &SwgCuiBuffBuilderBuffer::onSkillModsChanged, static_cast<CreatureObject::Messages::SkillModsChanged *>(0));
 
 	registerMediatorObject (*m_clearButton, true);
 	registerMediatorObject (*m_cancelButton, true);
@@ -140,6 +165,7 @@ m_committed(false)
 SwgCuiBuffBuilderBuffer::~SwgCuiBuffBuilderBuffer ()
 {
 
+	m_callback->disconnect (*this, &SwgCuiBuffBuilderBuffer::onSkillModsChanged, static_cast<CreatureObject::Messages::SkillModsChanged *>(0));
 	m_callback->disconnect (*this, &SwgCuiBuffBuilderBuffer::onBuffBuilderCancelReceived, static_cast<PlayerCreatureController::Messages::BuffBuilderCancelReceived *>(0));
 	m_callback->disconnect (*this, &SwgCuiBuffBuilderBuffer::onBuffBuilderChangeReceived, static_cast<PlayerCreatureController::Messages::BuffBuilderChangeReceived *>(0));
 
@@ -206,35 +232,11 @@ void SwgCuiBuffBuilderBuffer::OnButtonPressed( UIWidget *context )
 	//send the update packet
 	else if(context == m_acceptButton)
 	{
-		if(m_failedLastVerification || Random::random(1, 5) <= 2) // 40% chance
-		{
-			CuiStringVariablesData csvd;
-			Object const * sourceObj = Game::getPlayer();
-			Object const * receptObj = NetworkIdManager::getObjectById(m_recipientId);
-
-			if(!sourceObj || !receptObj)
-				return;
-
-			csvd.source = sourceObj->asClientObject();
-			csvd.target = receptObj->asClientObject();
-
-			Unicode::String str;
-			StringId promptId("ui_buffbuilder", "verify_prompt");
-			CuiStringVariablesManager::process (promptId, csvd, str);
-
-			ms_totalLogos = Random::random(1, 6);
-			CuiMessageBox * const box = CuiMessageBox::createOkCancelBoxWithInput(str);
-			box->generateVerificationImage(ms_totalLogos);
-
-			m_callback->connect (box->getTransceiverClosed (), *this, &SwgCuiBuffBuilderBuffer::onVerifyPromptClosed);
-
-		}
-		else
-		{
-			buildAndSendUpdateToServer(true);
-			m_committed = true;
-			m_acceptButton->SetEnabled(false);
-		}
+		// T-026: the "count the logos" captcha is removed game-wide (user decision).
+		// The reference (a995199c4) only skipped it in master mode; here Accept always proceeds.
+		buildAndSendUpdateToServer(true);
+		m_committed = true;
+		m_acceptButton->SetEnabled(false);
 	}
 	else if(context == m_clearButton)
 	{
@@ -333,6 +335,20 @@ void SwgCuiBuffBuilderBuffer::setupPage()
 	newSession.startingTime = Os::getRealSystemTime();
 	SharedBuffBuilderManager::startSession(newSession);
 
+	// A new session is never "already accepted". This matters when the window is still open and
+	// gets reused for a new session (e.g. the Entertainer NPC restarts a session): otherwise an
+	// old Accept would stop Cancel from telling the server and block the late master-mode switch.
+	// A freshly created window already starts with false, so normal /inspire is unchanged.
+	m_committed = false;
+
+	// Decide NPC master mode here, now that the recipient is known (the constructor ran too early).
+	// Without the marker this is always false, so a normal entertainer session is unchanged.
+	bool const masterMode = isNpcMasterSession();
+	if(masterMode != m_masterMode)
+	{
+		setMasterMode(masterMode);
+	}
+
 	updateBuffListFromSession();
 	updateBuffeeListFromSession();
 	updatePointsFromSession();	
@@ -401,6 +417,96 @@ void SwgCuiBuffBuilderBuffer::onBuffBuilderCancelReceived(PlayerCreatureControll
 	//no need to tell server
 	m_committed = true;
 	closeThroughWorkspace();
+}
+
+//----------------------------------------------------------------------
+
+/** NPC master mode: the server's marker skill mods can reach us a moment after
+*   the window opened.  Switch master mode ON once if that happens; never switch it
+*   OFF mid-session (e.g. when the timed marker expires or is removed at the end).
+*/
+void SwgCuiBuffBuilderBuffer::onSkillModsChanged(CreatureObject const & creature)
+{
+	if(&creature != Game::getPlayerCreature())
+		return;
+
+	// already on, already accepted, or setupPage hasn't run yet
+	if(m_masterMode || m_committed || !m_recipientId.isValid())
+		return;
+
+	if(!isNpcMasterSession())
+		return;
+
+	setMasterMode(true);
+	buildAndSendUpdateToServer(false);
+	updateAcceptButton();
+}
+
+//----------------------------------------------------------------------
+
+/** True when this is an Entertainer NPC session: a self-buff (the window's buffer is
+*   always the local player, so recipient == player means buffer == recipient == player)
+*   AND the server has given the player the "bbnpc_master" marker skill mod.
+*/
+bool SwgCuiBuffBuilderBuffer::isNpcMasterSession() const
+{
+	CreatureObject const * const player = Game::getPlayerCreature();
+	if(!player)
+		return false;
+
+	if(m_recipientId != player->getNetworkId())
+		return false;
+
+	return getPlayerModValueUncapped(ms_npcMasterMarkerModName) > 0;
+}
+
+//----------------------------------------------------------------------
+
+/** Turns NPC master mode on or off and rebuilds everything that depends on it:
+*   the buff tree (which rows are allowed), the expertise bonuses, the points,
+*   and the cover charge box.
+*/
+void SwgCuiBuffBuilderBuffer::setMasterMode(bool const masterMode)
+{
+	// set this first: OnTextboxChanged checks it when we reset the cover charge below
+	m_masterMode = masterMode;
+
+	initializeBuffTree();
+	initializeExpertiseModifiers();
+
+	// cover charge: hidden and 0 in master mode (the NPC is free), normal otherwise
+	m_coverChargeTextBox->SetVisible(!masterMode);
+	if(masterMode)
+	{
+		m_coverChargeTextBox->SetText(Unicode::narrowToWide("0"));
+	}
+
+	CreatureObject const * const player = Game::getPlayerCreature();
+	if(!player)
+		return;
+
+	SharedBuffBuilderManager::Session session;
+	if(SharedBuffBuilderManager::getSession(player->getNetworkId(), session))
+	{
+		if(masterMode)
+		{
+			session.bufferRequiredCredits = 0;
+		}
+
+		// buffs already in the list keep the expertise bonus they were added with,
+		// so re-stamp them with the new values
+		for(std::map<std::string, std::pair<int,int> >::iterator j = session.buffComponents.begin(); j != session.buffComponents.end(); ++j)
+		{
+			j->second.second = getExpertiseModifierForBuffComponent(j->first);
+		}
+		SharedBuffBuilderManager::updateSession(session);
+
+		updateBuffListFromSession();
+		updateBuffeeListFromSession();
+	}
+
+	updatePointsFromSession();
+	updateAddRemoveButtons();
 }
 
 //----------------------------------------------------------------------
@@ -517,8 +623,22 @@ void SwgCuiBuffBuilderBuffer::initializeBuffTree()
 					requiredExpertise = std::string("expertise_en_") + requiredExpertise + std::string("_1");
 				}
 
-				// expertise check 
-				if(requiredExpertise.empty() || ClientExpertiseManager::playerHasExpertise(requiredExpertise))
+				// expertise check
+				bool allowed = requiredExpertise.empty();
+				if(!allowed)
+				{
+					if(m_masterMode)
+					{
+						// NPC master mode: the server says which rows the NPC's build allows
+						allowed = getPlayerModValueUncapped(ms_npcMasterModPrefix + requiredExpertise) > 0;
+					}
+					else
+					{
+						allowed = ClientExpertiseManager::playerHasExpertise(requiredExpertise);
+					}
+				}
+
+				if(allowed)
 				{
 					Unicode::String buffInternalNameWide = Unicode::narrowToWide(buffList[buffIndex].c_str());
 					UIDataSourceContainer * const buffDsc = new UIDataSourceContainer;
@@ -568,6 +688,13 @@ void SwgCuiBuffBuilderBuffer::initializeExpertiseModifiers()
 
 int SwgCuiBuffBuilderBuffer::getExpertiseSkillModValue(const std::string & expertiseName, const std::string & skillModName)
 {
+	// NPC master mode: use the value the server sent (bbnpc_<skill mod name>),
+	// not the player's own expertise ranks
+	if(m_masterMode)
+	{
+		return getPlayerModValueUncapped(ms_npcMasterModPrefix + skillModName);
+	}
+
 	int value = 0;
 	ClientExpertiseManager::ExpertiseSkillModStruct skillMods;
 
@@ -695,6 +822,13 @@ void SwgCuiBuffBuilderBuffer::updateBuffeeListFromSession()
 			const int adjustedAmount = SharedBuffBuilderManager::computeAdjustedAffectAmount(buffIter->first,affectAmount,expertiseModifier);
 			pp.digitInteger = buffCount * adjustedAmount;
 
+			// NPC master mode: the server adds the second-chance proc bonus ONCE
+			// (count x amount + bonus), not once per count, so show that
+			if(m_masterMode && buffIter->first == ms_reactiveSecondChanceComponentName)
+			{
+				pp.digitInteger = (buffCount * affectAmount) + expertiseModifier;
+			}
+
 			Unicode::String resultStr;
 			IGNORE_RETURN(ProsePackageManagerClient::appendTranslation(pp, resultStr));
 			m_buffeeList->AddRow(resultStr,buffIter->first);
@@ -710,6 +844,10 @@ void SwgCuiBuffBuilderBuffer::OnTextboxChanged(UIWidget * const context)
 {
 	if (context == m_coverChargeTextBox)
 	{
+		// NPC master mode is free: the cover charge box is hidden and stays at 0
+		if (m_masterMode)
+			return;
+
 		SharedBuffBuilderManager::Session session;
 		bool const result = SharedBuffBuilderManager::getSession(Game::getPlayer()->getNetworkId(), session);
 		if(result)

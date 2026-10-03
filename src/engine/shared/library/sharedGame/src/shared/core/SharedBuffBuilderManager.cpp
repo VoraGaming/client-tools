@@ -323,7 +323,7 @@ void SharedBuffBuilderManager::populateChangeMessage(SharedBuffBuilderManager::S
 
 	msg.setBufferId(session.bufferId);
 	msg.setRecipientId(session.recipientId);
-	msg.setStartingTime(session.startingTime);
+	msg.setStartingTime(static_cast<uint32_t>(session.startingTime)); // wire field is 4 bytes
 	msg.setOrigin(BuffBuilderChangeMessage::O_BUFFER);
 	msg.setBufferRequiredCredits(session.bufferRequiredCredits);
 	msg.setAccepted(session.accepted);
